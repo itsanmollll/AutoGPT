@@ -18,6 +18,7 @@ LlmApiKeys = {
     "anthropic": BlockSecret("anthropic_api_key"),
     "groq": BlockSecret("groq_api_key"),
     "ollama": BlockSecret(value=""),
+    "unifyai": BlockSecret(value="unifyai_api_key"),
 }
 
 
