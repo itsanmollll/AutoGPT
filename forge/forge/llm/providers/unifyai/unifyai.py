@@ -297,7 +297,7 @@ UnifyChatModels = {
             has_function_call_api=False,
         ),
         ChatModelInfo(
-            name=UnifyAiModelName.llama_3_8b_chat@together-ai,
+            name=UnifyAiModelName.llama_3_8b_chat,
             provider_name=ModelProviderName.UNIFYAI,
             prompt_token_cost=0.0,
             completion_token_cost=0.0,
@@ -323,6 +323,15 @@ UnifyChatModels = {
     ]
 }
 
+class UnifyAIError(Exception):
+    """Base exception for UnifyAI-related errors."""
+    def _init_(self, message: str, code: Optional[str] = None):
+        super()._init_(message)
+        self.code = code
+        
+class UnifyAIRateLimitError(UnifyAIError):
+    """Exception for rate limit errors."""
+    pass
 
 class UnifyAICredentials(ModelProviderCredentials):
     """Credentials for UnifyAI."""
@@ -355,11 +364,176 @@ class UnifyAICredentials(ModelProviderCredentials):
         response.raise_for_status()
         return response
 
+<<<<<<< HEAD
 class UnifyAIProvider(BaseOpenAIChatProvider[UnifyAIModelName, UnifyAISettings],
     BaseOpenAIEmbeddingProvider[UnifyAIModelName, UnifyAISettings],):
+=======
+class UnifyAISettings(ModelProviderSettings):
+    credentials: Optional[UnifyAICredentials] = None
+    budget: ModelProviderBudget = ModelProviderBudget()
+    rate_limit_requests: int = Field(default=60, description="Number of requests allowed per minute")
+    rate_limit_tokens: int = Field(default=250000, description="Number of tokens allowed per minute")
+    
+class UnifyAIProvider(BaseOpenAIChatProvider[UnifyAiModelName, UnifyAISettings],
+                      BaseOpenAIEmbeddingProvider[UnifyAiModelName, UnifyAISettings]):
+>>>>>>> refs/remotes/origin/anmolMainAuto
     provider_name = ModelProviderName.UNIFYAI
+
+    def _init_(self, settings: UnifyAISettings):
+        super()._init_(settings)
+        self.client = Unify(**settings.credentials.get_api_access_kwargs())
+        self.async_client = AsyncUnify(**settings.credentials.get_api_access_kwargs())
+        self.rate_limiter = RateLimiter(settings.rate_limit_requests, settings.rate_limit_tokens)
+
+    def get_models(self) -> List[ChatModelInfo]:
+        return list(UNIFY_AI_CHAT_MODELS.values())
+
+    def get_embedding_models(self) -> List[EmbeddingModelInfo]:
+        return list(UNIFY_AI_EMBEDDING_MODELS.values())
+
+    async def create_chat_completion(
+        self,
+        model: UnifyAiModelName,
+        messages: List[Dict[str, str]],
+        stream: bool = False,
+        **kwargs: Any
+    ) -> Union[Dict[str, Any], Generator[ChatCompletionChunk, None, None]]:
+        await self.rate_limiter.acquire()
+        try:
+            if stream:
+                return self._stream_chat_completion(model, messages, **kwargs)
+            response = await self.async_client.chat.completions.create(
+                model=model,
+                messages=messages,
+                **kwargs
+            )
+            self.rate_limiter.update(self.count_tokens_from_messages(messages, model))
+            return response
+        except Exception as e:
+            raise self._handle_api_error(e)
+
+    async def _stream_chat_completion(
+        self,
+        model: UnifyAiModelName,
+        messages: List[Dict[str, str]],
+        **kwargs: Any
+    ) -> Generator[ChatCompletionChunk, None, None]:
+        try:
+            async for chunk in self.async_client.chat.completions.create(
+                model=model,
+                messages=messages,
+                stream=True,
+                **kwargs
+            ):
+                yield chunk
+                self.rate_limiter.update(len(chunk.choices[0].delta.content or ""))
+        except Exception as e:
+            raise self._handle_api_error(e)
+
+    async def create_embedding(
+        self,
+        model: UnifyAiModelName,
+        text: Union[str, List[str]],
+        **kwargs: Any
+    ) -> List[List[float]]:
+        await self.rate_limiter.acquire()
+        try:
+            response = await self.async_client.embeddings.create(
+                model=model,
+                input=text,
+                **kwargs
+            )
+            self.rate_limiter.update(self.count_tokens(text, model))
+            return response['data'][0]['embedding']
+        except Exception as e:
+            raise self._handle_api_error(e)
+
+    def count_tokens(self, text: str, model: Optional[UnifyAiModelName] = None) -> int:
+        # Anmol can u write logic
+        # This is a placeholder and should be replaced with actual implementation
+        return len(text.split())
+
+    def count_tokens_from_messages(self, messages: List[Dict[str, str]], model: UnifyAiModelName) -> int:
+        # Implement token counting logic for messages here
+        # This is a placeholder and should be replaced with actual implementation
+        return sum(len(message['content'].split()) for message in messages)
+
+    @staticmethod
+    def default_model() -> UnifyAiModelName:
+        return UnifyAiModelName.MIXTRAL_8X7B_INSTRUCT_V1
+
+    def _handle_api_error(self, e: Exception) -> UnifyAIError:
+        if isinstance(e, UnifyAIError):
+            return e
+        elif "rate limit" in str(e).lower():
+            return UnifyAIRateLimitError("Rate limit exceeded", code="rate_limit_exceeded")
+        else:
+            return UnifyAIError(f"Unexpected error: {str(e)}")
 
 class UnifyAiSettings(ModelProviderSettings):
     credentials: Optional[UnifyAICredentials]  # type: ignore
     budget: ModelProviderBudget  # type: ignore
 
+class RateLimiter:
+    def _init_(self, requests_per_minute: int, tokens_per_minute: int):
+        self.requests_per_minute = requests_per_minute
+        self.tokens_per_minute = tokens_per_minute
+        self.request_tokens = 0
+        self.last_reset_time = time.time()
+
+    async def acquire(self):
+        current_time = time.time()
+        if current_time - self.last_reset_time >= 60:
+            self.request_tokens = 0
+            self.last_reset_time = current_time
+        
+        if self.request_tokens >= self.requests_per_minute:
+            await asyncio.sleep(60 - (current_time - self.last_reset_time))
+            await self.acquire()
+        
+        self.request_tokens += 1
+
+    def update(self, tokens: int):
+        self.request_tokens += tokens // self.tokens_per_minute
+
+class UnifyAIModelSelector:
+    @staticmethod
+    def select_model(task: str, input_length: int, quality_preference: str, budget: float) -> UnifyAiModelName:
+        if task == "code" and input_length > 1000:
+            return UnifyAiModelName.CODELLAMA_70B_INSTRUCT
+        elif quality_preference == "high" and budget > 0.1:
+            return UnifyAiModelName.GPT_4_TURBO
+        elif quality_preference == "medium" and budget > 0.05:
+            return UnifyAiModelName.CLAUDE_3_OPUS
+        else:
+            return UnifyAiModelName.MIXTRAL_8X7B_INSTRUCT_V1
+
+    @staticmethod
+    def estimate_cost(model: UnifyAiModelName, input_length: int) -> float:
+        model_info = UnifyChatModels.get(model)
+        if not model_info:
+            raise ValueError(f"Unknown model: {model}")
+        
+        estimated_tokens = input_length // 4  # Rough estimate, adjust based on actual tokenization
+        return (estimated_tokens * model_info.prompt_token_cost) + \
+               (estimated_tokens * model_info.completion_token_cost)
+
+async def fine_tune_model(self, model: UnifyAiModelName, training_data: List[Dict[str, str]]) -> str:
+    # This is a placeholder for fine-tuning functionality
+    # Implement actual fine-tuning logic based on UnifyAI's API
+    try:
+        response = await self.async_client.fine_tunes.create(
+            model=model,
+            training_data=training_data
+        )
+        return response['id']
+    except Exception as e:
+        raise self._handle_api_error(e)
+
+async def get_fine_tune_status(self, fine_tune_id: str) -> Dict[str, Any]:
+    #have to write logic related to fine tuning status
+    try:
+        response = await self.async_client.fine_tunes.retrieve(fine_tune_id)
+        return response
+    except Exception as e:
+        raise self._handle_api_error(e)
