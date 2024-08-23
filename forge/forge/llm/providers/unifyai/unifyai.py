@@ -117,8 +117,6 @@ UNIFY_AI_EMBEDDING_MODELS = {
 }
 
 
-
-
 UnifyChatModels = {
     info.name: info
     for info in [
@@ -356,10 +354,6 @@ class UnifyAICredentials(ModelProviderCredentials):
         response = requests.request(method, url, headers=headers, json=json)
         response.raise_for_status()
         return response
-
-
-
-
 
 class UnifyAIProvider(BaseOpenAIChatProvider[UnifyAIModelName, UnifyAISettings],
     BaseOpenAIEmbeddingProvider[UnifyAIModelName, UnifyAISettings],):
