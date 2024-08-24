@@ -1,5 +1,6 @@
 import openai
 import requests
+import os 
 import enum
 from unify.clients import Unify,AsyncUnify # type: ignore
 from forge.json.parsing import json_loads
@@ -327,13 +328,33 @@ UnifyChatModels = {
 
 class UnifyAIError(Exception):
     """Base exception for UnifyAI-related errors."""
-    def _init_(self, message: str, code: Optional[str] = None):
+    def __init__(self, message: str, code: Optional[str] = None):
         super()._init_(message)
         self.code = code
         
 class UnifyAIRateLimitError(UnifyAIError):
     """Exception for rate limit errors."""
-    pass
+    def __init__(self, message="Rate limit exceeded.", retry_after=None, limit=None):
+        """
+        Initialize the rate limit error with additional details.
+
+        Args:
+            message (str): Error message.
+            retry_after (int): Time in seconds after which the request can be retried.
+            limit (int): The number of requests allowed within the rate limit window.
+        """
+        super().__init__(message)
+        self.retry_after = retry_after
+        self.limit = limit
+
+    def __str__(self):
+        """
+        Return a string representation of the error including retry information.
+        """
+        base_message = super().__str__()
+        if self.retry_after:
+            return f"{base_message} Please retry after {self.retry_after} seconds."
+        return base_message
 
 class UnifyAICredentials(ModelProviderCredentials):
     """Credentials for UnifyAI."""
@@ -376,8 +397,8 @@ class UnifyAIProvider(BaseOpenAIChatProvider[UnifyAiModelName, UnifyAISettings],
                       BaseOpenAIEmbeddingProvider[UnifyAiModelName, UnifyAISettings]):
     provider_name = ModelProviderName.UNIFYAI
 
-    def _init_(self, settings: UnifyAISettings):
-        super()._init_(settings)
+    def __init__(self, settings: UnifyAISettings):
+        super().__init__(settings)
         self.client = Unify(**settings.credentials.get_api_access_kwargs())
         self.async_client = AsyncUnify(**settings.credentials.get_api_access_kwargs())
         self.rate_limiter = RateLimiter(settings.rate_limit_requests, settings.rate_limit_tokens)
@@ -390,6 +411,7 @@ class UnifyAIProvider(BaseOpenAIChatProvider[UnifyAiModelName, UnifyAISettings],
 
     async def create_chat_completion(
         self,
+        prompt_messages: list[ChatMessage], # type: ignore if not in use 
         model: UnifyAiModelName,
         messages: List[Dict[str, str]],
         stream: bool = False,
@@ -446,14 +468,60 @@ class UnifyAIProvider(BaseOpenAIChatProvider[UnifyAiModelName, UnifyAISettings],
             raise self._handle_api_error(e)
 
     def count_tokens(self, text: str, model: Optional[UnifyAiModelName] = None) -> int:
-        # Anmol can u write logic
         # This is a placeholder and should be replaced with actual implementation
-        return len(text.split())
+        if model is None:
+            raise ValueError("Model must be specified to count tokens.")
+
+        # Tokenization logic based on the model type
+        if model in UNIFY_AI_EMBEDDING_MODELS:
+            # Use a basic word tokenizer for embedding models
+            tokens = self._simple_tokenizer(text)
+        elif model in UnifyChatModels:
+            # Use a GPT-like tokenizer for chat models
+            tokens = self._gpt_like_tokenizer(text)
+        elif model in UnifyAiModelName:
+            # Use a custom tokenizer for other models
+            tokens = self._custom_tokenizer(text, model)
+        else:
+            raise ValueError(f"Unsupported model: {model}")
+        return len(tokens)
 
     def count_tokens_from_messages(self, messages: List[Dict[str, str]], model: UnifyAiModelName) -> int:
         # Implement token counting logic for messages here
         # This is a placeholder and should be replaced with actual implementation
-        return sum(len(message['content'].split()) for message in messages)
+        """
+        Count the number of tokens in a list of messages based on the specified model's tokenizer.
+
+        Args:
+            messages (List[Dict[str, str]]): A list of message dictionaries containing 'role' and 'content'.
+            model (UnifyAiModelName): The model for which to count tokens.
+
+        Returns:
+            int: The total number of tokens in all messages.
+        """
+        if model is None:
+            raise ValueError("Model must be specified to count tokens.")
+
+        total_tokens = 0
+
+        for message in messages:
+            if 'content' not in message:
+                raise ValueError("Each message must have a 'content' field.")
+                
+            content = message['content']
+
+            # Tokenization logic based on the model type
+            if model in UNIFY_AI_EMBEDDING_MODELS:
+                tokens = self._simple_tokenizer(content)
+            elif model in UnifyChatModels:
+                tokens = self._gpt_like_tokenizer(content)
+            else:
+                raise ValueError(f"Unsupported model: {model}")
+
+            total_tokens += len(tokens)
+
+        return total_tokens
+        # return sum(len(message['content'].split()) for message in messages)
 
     @staticmethod
     def default_model() -> UnifyAiModelName:
