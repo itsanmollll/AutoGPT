@@ -1,6 +1,7 @@
 import openai
 import requests
 import os 
+import datetime
 import enum
 from unify.clients import Unify,AsyncUnify # type: ignore
 from forge.json.parsing import json_loads
@@ -120,7 +121,7 @@ UNIFY_AI_EMBEDDING_MODELS = {
 
 
 
-UnifyChatModels = {
+UNIFY_CHAT_MODELS = {
     info.name: info
     for info in [
         ChatModelInfo(
@@ -364,13 +365,13 @@ class UnifyAICredentials(ModelProviderCredentials):
         default="https://api.unify.ai", from_env="UNIFYAI_BASE_URL"
     )
 
-    def get_api_access_kwargs(self) -> Dict[str, Any]:
+    def get_api_access_kwargs(self) -> dict[str, Any]:
         return {
             "unifyai_api_key": self.unifyai_api_key.get_secret_value(),
             "unifyai_base_url": self.unifyai_base_url.get_secret_value(),
         }
 
-    def deploy_model(self, model_name: str, model_file_path: str) -> Dict[str, Any]:
+    def deploy_model(self, model_name: str, model_file_path: str) -> dict[str, Any]:
         """Example method to deploy a model to UnifyAI."""
         api_access_kwargs = self.get_api_access_kwargs()
         # Implement API call to UnifyAI to deploy the model
@@ -381,7 +382,7 @@ class UnifyAICredentials(ModelProviderCredentials):
         )
         return response.json()
 
-    def _call_unifyai_api(self, method: str, url: str, headers: Dict[str, str], json: Dict[str, Any]) -> Any:
+    def _call_unifyai_api(self, method: str, url: str, headers: dict[str, str], json: dict[str, Any]) -> Any:
         import requests
         response = requests.request(method, url, headers=headers, json=json)
         response.raise_for_status()
@@ -403,20 +404,20 @@ class UnifyAIProvider(BaseOpenAIChatProvider[UnifyAiModelName, UnifyAISettings],
         self.async_client = AsyncUnify(**settings.credentials.get_api_access_kwargs())
         self.rate_limiter = RateLimiter(settings.rate_limit_requests, settings.rate_limit_tokens)
 
-    def get_models(self) -> List[ChatModelInfo]:
-        return list(UNIFY_AI_CHAT_MODELS.values())
+    def get_models(self) -> list[ChatModelInfo]:
+        return list(UNIFY_CHAT_MODELS.values())
 
-    def get_embedding_models(self) -> List[EmbeddingModelInfo]:
+    def get_embedding_models(self) -> list[EmbeddingModelInfo]:
         return list(UNIFY_AI_EMBEDDING_MODELS.values())
 
     async def create_chat_completion(
         self,
         prompt_messages: list[ChatMessage], # type: ignore if not in use 
         model: UnifyAiModelName,
-        messages: List[Dict[str, str]],
+        messages: list[dict[str, str]],
         stream: bool = False,
         **kwargs: Any
-    ) -> Union[Dict[str, Any], Generator[ChatCompletionChunk, None, None]]:
+    ) -> Union[dict[str, Any], Generator[ChatCompletionChunk, None, None]]:
         await self.rate_limiter.acquire()
         try:
             if stream:
@@ -434,7 +435,7 @@ class UnifyAIProvider(BaseOpenAIChatProvider[UnifyAiModelName, UnifyAISettings],
     async def _stream_chat_completion(
         self,
         model: UnifyAiModelName,
-        messages: List[Dict[str, str]],
+        messages: list[dict[str, str]],
         **kwargs: Any
     ) -> Generator[ChatCompletionChunk, None, None]:
         try:
@@ -452,9 +453,9 @@ class UnifyAIProvider(BaseOpenAIChatProvider[UnifyAiModelName, UnifyAISettings],
     async def create_embedding(
         self,
         model: UnifyAiModelName,
-        text: Union[str, List[str]],
+        text: Union[str, list[str]],
         **kwargs: Any
-    ) -> List[List[float]]:
+    ) -> list[list[float]]:
         await self.rate_limiter.acquire()
         try:
             response = await self.async_client.embeddings.create(
@@ -476,7 +477,7 @@ class UnifyAIProvider(BaseOpenAIChatProvider[UnifyAiModelName, UnifyAISettings],
         if model in UNIFY_AI_EMBEDDING_MODELS:
             # Use a basic word tokenizer for embedding models
             tokens = self._simple_tokenizer(text)
-        elif model in UnifyChatModels:
+        elif model in UNIFY_CHAT_MODELS:
             # Use a GPT-like tokenizer for chat models
             tokens = self._gpt_like_tokenizer(text)
         elif model in UnifyAiModelName:
@@ -486,7 +487,7 @@ class UnifyAIProvider(BaseOpenAIChatProvider[UnifyAiModelName, UnifyAISettings],
             raise ValueError(f"Unsupported model: {model}")
         return len(tokens)
 
-    def count_tokens_from_messages(self, messages: List[Dict[str, str]], model: UnifyAiModelName) -> int:
+    def count_tokens_from_messages(self, messages: list[dict[str, str]], model: UnifyAiModelName) -> int:
         # Implement token counting logic for messages here
         # This is a placeholder and should be replaced with actual implementation
         """
@@ -513,7 +514,7 @@ class UnifyAIProvider(BaseOpenAIChatProvider[UnifyAiModelName, UnifyAISettings],
             # Tokenization logic based on the model type
             if model in UNIFY_AI_EMBEDDING_MODELS:
                 tokens = self._simple_tokenizer(content)
-            elif model in UnifyChatModels:
+            elif model in UNIFY_CHAT_MODELS:
                 tokens = self._gpt_like_tokenizer(content)
             else:
                 raise ValueError(f"Unsupported model: {model}")
@@ -544,10 +545,10 @@ class RateLimiter:
         self.requests_per_minute = requests_per_minute
         self.tokens_per_minute = tokens_per_minute
         self.request_tokens = 0
-        self.last_reset_time = time.time()
+        self.last_reset_time = datetime.datetime()
 
     async def acquire(self):
-        current_time = time.time()
+        current_time = datetime.datetime()
         if current_time - self.last_reset_time >= 60:
             self.request_tokens = 0
             self.last_reset_time = current_time
@@ -575,7 +576,7 @@ class UnifyAIModelSelector:
 
     @staticmethod
     def estimate_cost(model: UnifyAiModelName, input_length: int) -> float:
-        model_info = UnifyChatModels.get(model)
+        model_info = UNIFY_CHAT_MODELS.get(model)
         if not model_info:
             raise ValueError(f"Unknown model: {model}")
         
@@ -583,7 +584,7 @@ class UnifyAIModelSelector:
         return (estimated_tokens * model_info.prompt_token_cost) + \
                (estimated_tokens * model_info.completion_token_cost)
 
-async def fine_tune_model(self, model: UnifyAiModelName, training_data: List[Dict[str, str]]) -> str:
+async def fine_tune_model(self, model: UnifyAiModelName, training_data: list[dict[str, str]]) -> str:
     # This is a placeholder for fine-tuning functionality
     # Implement actual fine-tuning logic based on UnifyAI's API
     try:
@@ -595,7 +596,7 @@ async def fine_tune_model(self, model: UnifyAiModelName, training_data: List[Dic
     except Exception as e:
         raise self._handle_api_error(e)
 
-async def get_fine_tune_status(self, fine_tune_id: str) -> Dict[str, Any]:
+async def get_fine_tune_status(self, fine_tune_id: str) -> dict[str, Any]:
     #have to write logic related to fine tuning status
     try:
         response = await self.async_client.fine_tunes.retrieve(fine_tune_id)
