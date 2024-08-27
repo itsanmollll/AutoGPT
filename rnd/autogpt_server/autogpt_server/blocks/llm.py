@@ -5,6 +5,7 @@ from typing import List, NamedTuple
 import anthropic
 import ollama
 import openai
+import unify
 from groq import Groq
 
 from autogpt_server.data.block import Block, BlockCategory, BlockOutput, BlockSchema
