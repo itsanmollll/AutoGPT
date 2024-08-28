@@ -4,7 +4,7 @@ import logging
 from typing import Any, AsyncIterator, Callable, Optional, Sequence, TypeVar, get_args
 
 from pydantic import ValidationError
-
+from .unifyai import UNIFY_CHAT_MODELS, UnifyAiModelName, UnifyAIProvider
 from .anthropic import ANTHROPIC_CHAT_MODELS, AnthropicModelName, AnthropicProvider
 from .groq import GROQ_CHAT_MODELS, GroqModelName, GroqProvider
 from .llamafile import LLAMAFILE_CHAT_MODELS, LlamafileModelName, LlamafileProvider
@@ -33,6 +33,7 @@ CHAT_MODELS = {
     **GROQ_CHAT_MODELS,
     **LLAMAFILE_CHAT_MODELS,
     **OPEN_AI_CHAT_MODELS,
+    **UNIFY_CHAT_MODELS,
 }
 
 
@@ -177,13 +178,14 @@ class MultiProvider(BaseChatModelProvider[ModelName, ModelProviderSettings]):
     @classmethod
     def _get_provider_class(
         cls, provider_name: ModelProviderName
-    ) -> type[AnthropicProvider | GroqProvider | OpenAIProvider]:
+    ) -> type[AnthropicProvider | GroqProvider | OpenAIProvider | UnifyAIProvider]:
         try:
             return {
                 ModelProviderName.ANTHROPIC: AnthropicProvider,
                 ModelProviderName.GROQ: GroqProvider,
                 ModelProviderName.LLAMAFILE: LlamafileProvider,
                 ModelProviderName.OPENAI: OpenAIProvider,
+                ModelProviderName.UNIFYAI: UnifyAIProvider,
             }[provider_name]
         except KeyError:
             raise ValueError(f"{provider_name} is not a known provider") from None
@@ -198,4 +200,5 @@ ChatModelProvider = (
     | LlamafileProvider
     | OpenAIProvider
     | MultiProvider
+    | UnifyAIProvider
 )
