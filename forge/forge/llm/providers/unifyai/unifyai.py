@@ -331,6 +331,7 @@ UNIFY_CHAT_MODELS = {
     ]
 }
 
+
 class UnifyAIError(Exception):
     """Base exception for UnifyAI-related errors."""
     def __init__(self, message: str, code: Optional[str] = None):
