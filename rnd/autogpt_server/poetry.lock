@@ -24,6 +24,7 @@ python-dotenv = "^1.0.0"
 requests = "*"
 sentry-sdk = "^1.40.4"
 
+
 [package.extras]
 benchmark = ["agbenchmark"]
 
