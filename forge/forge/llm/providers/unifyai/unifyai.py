@@ -1,9 +1,12 @@
+from dataclasses import Field
+from typing import AsyncGenerator, Dict, Generator, List, Union
 import openai
 import requests
 import os 
+import asyncio
 import datetime
 import enum
-from unify.clients import Unify,AsyncUnify # type: ignore
+from unify.clients import Unify,AsyncUnify 
 from forge.json.parsing import json_loads
 from forge.models.config import UserConfigurable
 from forge.models.json_schema import JSONSchema
@@ -20,6 +23,7 @@ from ..schema import (
     EmbeddingModelInfo, 
 )
 from ..openai import *
+from ..openai import ChatCompletionChunk
 
 class UnifyAiModelName(str, enum.Enum):
     mixtral_8x7b_instruct_v1 = "mixtral-8x7b-instruct-v0.1"
@@ -437,7 +441,7 @@ class UnifyAIProvider(BaseOpenAIChatProvider[UnifyAiModelName, UnifyAISettings],
         model: UnifyAiModelName,
         messages: list[dict[str, str]],
         **kwargs: Any
-    ) -> Generator[ChatCompletionChunk, None, None]:
+    ) -> AsyncGenerator[ChatCompletionChunk, None]:
         try:
             async for chunk in self.async_client.chat.completions.create(
                 model=model,
